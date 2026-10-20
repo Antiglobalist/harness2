@@ -105,14 +105,16 @@ class Proposer:
     def env(self) -> dict[str, str]:
         e = {k: v for k, v in os.environ.items() if k not in _DROP_ENV}
         if self.spec.kind == "claude_cli":
-            e.update(
-                {
-                    "CLAUDE_CODE_USE_VERTEX": "1",
-                    "ANTHROPIC_VERTEX_PROJECT_ID": self.project,
-                    "CLOUD_ML_REGION": self.region,
-                    "ANTHROPIC_MODEL": self.spec.model,
-                }
-            )
+            e["ANTHROPIC_MODEL"] = self.spec.model
+            # Without a Vertex project the CLI keeps its own login (subscription or API key).
+            if self.project:
+                e.update(
+                    {
+                        "CLAUDE_CODE_USE_VERTEX": "1",
+                        "ANTHROPIC_VERTEX_PROJECT_ID": self.project,
+                        "CLOUD_ML_REGION": self.region,
+                    }
+                )
         else:
             e.update(
                 {
@@ -522,7 +524,7 @@ def _call_fingerprint(label: str, mission: str, system: str, context_dir: Path |
             for p in sorted(root.rglob("*")):
                 if not p.is_file() or "__pycache__" in p.parts:
                     continue
-                h.update(str(p.relative_to(root)).encode("utf-8", errors="replace"))
+                h.update(p.relative_to(root).as_posix().encode("utf-8", errors="replace"))
                 h.update(b"\0")
                 try:
                     with p.open("rb") as fh:
