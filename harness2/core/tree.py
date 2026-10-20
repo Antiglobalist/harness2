@@ -56,6 +56,8 @@ class SurfaceSpec:
     hook_events: frozenset[str] = frozenset()
     compile_skill_scripts: bool = False
     reject_empty_always_on: bool = False
+    # False for a framework that advertises skill descriptions itself: no trigger line is owed.
+    require_skill_trigger: bool = True
 
     stubs: tuple[tuple[str, str], ...] = ()
 
@@ -197,10 +199,12 @@ def autotrigger(surface: SurfaceSpec, tree: Tree, *, always_on_max: int | None =
     cap = surface.always_on_max if always_on_max is None else always_on_max
     body = always_on_text(surface, tree)
     fixed: list[str] = []
+    if not surface.require_skill_trigger:
+        return fixed
     for name in skill_names(surface, tree):
         if name in body:
             continue
-        fm = tree.get(f"{surface.skill_dir}/{name}/SKILL.md", "")[:600]
+        fm = _frontmatter(tree.get(f"{surface.skill_dir}/{name}/SKILL.md", ""))
         m = re.search(r"^description:\s*(.+)$", fm, re.M)
         desc = m.group(1).strip().rstrip(".") if m else f"the {name} workflow applies"
         line = surface.trigger_line.format(name=name, desc=desc)
@@ -264,11 +268,17 @@ def _py_compiles(rel: str, src: str, errs: list[str]) -> None:
         errs.append(f"{rel} does not compile: {detail[:160]}")
 
 
+def _frontmatter(skill_md: str) -> str:
+    """The YAML block between the opening and closing `---`; the first 600 chars when unfenced."""
+    m = re.match(r"\s*---[ \t]*\n(.*?)\n---", skill_md, re.S)
+    return m.group(1) if m else skill_md[:600]
+
+
 def _check_skills(surface: SurfaceSpec, tree: Tree, body: str, errs: list[str]) -> list[str]:
     """Append every skill-frontmatter and untriggered-skill problem; return the skill names."""
     skills = skill_names(surface, tree)
     for name in skills:
-        fm = tree[f"{surface.skill_dir}/{name}/SKILL.md"][:600]
+        fm = _frontmatter(tree[f"{surface.skill_dir}/{name}/SKILL.md"])
         if not re.search(r"^description:\s*\S", fm, re.M):
             errs.append(
                 f"{surface.skill_dir}/{name}/SKILL.md needs a `description:` in its "
@@ -289,7 +299,7 @@ def _check_skills(surface: SurfaceSpec, tree: Tree, body: str, errs: list[str]) 
                 f"trigger line naming `{name}` stops matching; drop the `name:` line "
                 f"or make it `name: {name}`"
             )
-        if name not in body:
+        if surface.require_skill_trigger and name not in body:
             errs.append(
                 f"skill '{name}' is never named in the always-on text, so the agent "
                 f"will not know to invoke it — an untriggered skill is dead weight. "
